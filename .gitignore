@@ -1,0 +1,93 @@
+# Dependencies
+node_modules/
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Build outputs
+frontend/dist/
+frontend/dist-ssr/
+frontend/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
+
+# Testing
+coverage/
+.nyc_output/
+*.coverage
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Model files (large binaries)
+# Uncomment if you don't want to commit the model
+# backend/models/*.h5
+# backend/models/*.pkl
+# backend/models/*.pb
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Documentation build
+docs/_build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# Local documentation
+site/
+
+# Test images and datasets
+test_images/Dataset/
+
+# Misc
+*.bak
+*.backup
+*.local
+
+# Temporary Office files
+~$*
+*.tmp
