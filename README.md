@@ -5,54 +5,52 @@
 A production-ready full-stack application that uses PyTorch-based Xception CNN and 15 OpenCV-based security feature detectors to authenticate Indian banknotes (₹500, ₹2000) with **92.88% accuracy** and full explainability.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x-orange.svg)](https://pytorch.org)
+[![PyTorch 2.7+cu118](https://img.shields.io/badge/PyTorch-2.7.1+cu118-orange.svg)](https://pytorch.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://reactjs.org)
+[![CUDA 11.8](https://img.shields.io/badge/CUDA-11.8-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
 ---
 
 ## 🎯 Features
 
 ### AI-Powered Detection
-- **PyTorch Xception CNN**: Pretrained on ImageNet, fine-tuned on 7,442 currency images
-- **15 Security Features**: Comprehensive analysis matching RBI specifications
-- **Class-Balanced Training**: Handles imbalanced datasets with automatic weighting
-- **92.88% Accuracy**: Validated on 800+ test images
-- **78.33% Fake Detection Rate**: Dramatically improved from 0% with balanced training
+- **PyTorch Xception CNN**: Pretrained on ImageNet, fine-tuned on 7,442 currency images with CUDA acceleration
+- **15 Security Features**: Comprehensive analysis matching RBI specifications with independent scoring
+- **Class-Balanced Training**: Handles 8.5:1 imbalance with weighted BCELoss (8.5x for fake notes)
+- **92.88% Accuracy**: Validated on 800+ test images (78.33% fake detection, 100% real detection)
+- **Critical Feature Override**: Prevents false positives when Security Thread/Watermark/Serial Number fail
 
 ### Security Feature Analysis
-| Feature | Detection Method |
-|---------|-----------------|
-| **Security Thread** (22.5%) | Vertical lines, intensity, texture, color shift |
-| **Watermark** (18.8%) | Brightness variation, smoothness, edge density |
-| **Serial Number** (15.0%) | Tesseract OCR, format validation, progressive sizing |
-| **Optically Variable Ink** (11.3%) | HSV color analysis (green→blue shift) |
-| **Latent Image** (9.0%) | Edge patterns, texture analysis |
-| **Intaglio Printing** (9.0%) | Edge density, variance, gradient magnitude |
-| **See-Through Registration** (7.5%) | Pattern matching, line detection |
-| **Microlettering** (6.0%) | High-res OCR, edge density |
-| **Fluorescence** (5.3%) | Brightness analysis (UV required) |
-| **Color Analysis** (5.3%) | HSV histogram uniformity |
-| **Texture** (3.8%) | GLCM, Laplacian variance |
-| **Dimensions** (3.8%) | Contour detection, aspect ratio |
-| **Identification Mark** (3.8%) | Shape detection (circle/square/etc) |
-| **Angular Lines** (2.3%) | Hough lines with angle filtering |
 
-### Critical Feature Override
-If ANY critical feature (Security Thread, Watermark, Serial Number) fails, the note is marked **FAKE** regardless of CNN prediction. This prevents false positives and mimics expert authentication.
+| Priority | Feature | Detection Method | Weight |
+|----------|---------|-----------------|--------|
+| **Critical** | Security Thread | HoughLinesP, intensity, texture | 22.5% |
+| **Critical** | Watermark | Brightness, smoothness, edges | 18.8% |
+| **Critical** | Serial Number | Tesseract OCR, format validation | 15.0% |
+| Important | Optically Variable Ink | HSV color, green/blue ratio | 11.3% |
+| Important | Latent Image | Edge patterns, texture | 9.0% |
+| Important | Intaglio Printing | Edge density, variance, gradient | 9.0% |
+| Important | See-Through Registration | Pattern matching | 7.5% |
+| Supporting | Microlettering | High-res OCR | 6.0% |
+| Supporting | Fluorescence | Brightness (UV required) | 5.3% |
+| Supporting | Color Analysis | HSV histogram | 5.3% |
+| Supporting | Texture | GLCM, Laplacian | 3.8% |
+| Supporting | Dimensions | Contour detection | 3.8% |
+| Supporting | Identification Mark | Shape detection | 3.8% |
+| Supporting | Angular Lines | Hough lines, angle filtering | 2.3% |
 
----
-
-## 📊 Performance
+### Performance
 
 | Metric | Value |
 |--------|-------|
 | **Overall Accuracy** | 92.88% |
-| **Fake Detection** | 78.33% |
-| **Real Detection** | 100.00% |
+| **Fake Detection** | 78.33% (206/263) |
+| **Real Detection** | 100.00% (537/537) |
 | **AUC Score** | 0.9947 |
-| **Processing Time** | 1-3 seconds (CPU) |
-| **False Positive Rate** | <3% |
+| **Processing Time (CPU)** | 1-3 seconds |
+| **Processing Time (GPU)** | 0.7-1.4 seconds |
+| **False Positive Rate** | 0% |
 
 ---
 
@@ -62,7 +60,8 @@ If ANY critical feature (Security Thread, Watermark, Serial Number) fails, the n
 - Python 3.10+
 - Node.js 18+
 - MySQL 8.0+ (or SQLite for testing)
-- Tesseract OCR: `apt install tesseract-ocr` or download from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+- Tesseract OCR ([Windows installer](https://github.com/UB-Mannheim/tesseract/wiki))
+- Optional: NVIDIA GPU with CUDA 11.8+ (GTX 1050 or better)
 
 ### Backend Setup
 
@@ -71,15 +70,15 @@ cd backend
 
 # Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-.venv\Scripts\activate     # Windows
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your database credentials
+# Edit .env with your database URL
 
 # Start server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -106,19 +105,18 @@ npm run dev
 
 ## 🔬 Training Your Own Model
 
-### Dataset Preparation
+### Step 1: Download Dataset
 
-1. **Download Dataset** from Kaggle:
-   - [Indian Currency Real vs Fake Notes](https://www.kaggle.com/datasets/preetrank/indian-currency-real-vs-fake-notes-dataset)
-   
-2. **Extract** to `backend/dataset_downloads/preetrank/`:
-   ```
-   preetrank/
-   ├── fake/
-   └── real/
-   ```
+Download from Kaggle: [Indian Currency Real vs Fake Notes](https://www.kaggle.com/datasets/preetrank/indian-currency-real-vs-fake-notes-dataset)
 
-### Train Model
+Extract to `backend/dataset_downloads/preetrank/` with structure:
+```
+preetrank/
+├── fake/  (581 images)
+└── real/  (4,937 images)
+```
+
+### Step 2: Train Model
 
 ```bash
 cd backend
@@ -127,20 +125,22 @@ python cnn_classifier.py --epochs 15 --batch-size 8
 
 **Training Configuration:**
 - 15 epochs (8 head training + 7 fine-tuning)
-- Class balancing (fake notes weighted 8.5x)
-- Heavy augmentation (rotation, zoom, flip, brightness, contrast)
+- Class balancing: fake notes weighted 8.5x
+- Heavy augmentation: rotation, zoom, flip, brightness, contrast
 - Batch size 8 for stability
+- Expected time: ~75 min (GPU), ~4 hours (CPU)
 
-**Expected Results:**
-- Training time: ~4 hours (CPU), ~45 min (GPU)
-- Validation accuracy: 90-95%
-- Fake detection: 75-85%
-
-### Validate Model
+### Step 3: Validate Model
 
 ```bash
 python validate_model.py --model-path models/cnn_pytorch_best.pth
 ```
+
+**Expected Results:**
+- Overall Accuracy: 90-95%
+- Fake Detection: 75-85%
+- Real Detection: 98-100%
+- AUC Score: >0.95
 
 ---
 
@@ -150,10 +150,10 @@ python validate_model.py --model-path models/cnn_pytorch_best.pth
 Fake Currency Detection System/
 ├── backend/
 │   ├── services/
-│   │   ├── cnn_classifier.py          # PyTorch Xception model
+│   │   ├── cnn_classifier.py          # PyTorch Xception model + TTA
 │   │   ├── opencv_analyzer.py          # 15 security feature detectors
 │   │   ├── ensemble_engine.py          # Critical feature override logic
-│   │   ├── image_preprocessor.py       # Image preparation
+│   │   ├── image_preprocessor.py       # Image preparation (no TensorFlow)
 │   │   └── image_annotator.py          # Result visualization
 │   ├── routers/
 │   │   ├── analyze.py                  # Main analysis endpoint
@@ -161,25 +161,25 @@ Fake Currency Detection System/
 │   ├── models/
 │   │   ├── cnn_pytorch_best.pth        # Best checkpoint
 │   │   └── schemas.py                  # Pydantic models
-│   ├── requirements.txt                # Python dependencies
+│   ├── requirements.txt                # Python dependencies (PyTorch)
 │   ├── main.py                         # FastAPI app
-│   ├── config.py                       # Configuration
-│   └── database.py                     # Database connection
+│   ├── config.py                       # Pydantic settings
+│   └── database.py                     # SQLAlchemy connection
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── HomePage.tsx            # Upload/camera
-│   │   │   ├── ResultsPage.tsx         # Analysis results
+│   │   │   ├── HomePage.tsx            # Upload/camera input
+│   │   │   ├── ResultsPage.tsx         # Detailed analysis
 │   │   │   └── HistoryPage.tsx         # Past analyses
 │   │   └── components/
 │   │       ├── ImageUploader.tsx       # Drag & drop
-│   │       ├── CameraCapture.tsx       # Webcam
-│   │       └── AnalysisTable.tsx       # Feature results
+│   │       ├── CameraCapture.tsx       # Webcam capture
+│   │       └── AnalysisTable.tsx       # Feature results table
 │   └── package.json
 │
 └── docs/
-    └── IEEE_Research_Paper.md          # Complete research paper
+    └── IEEE_Research_Paper.md          # Complete IEEE-format paper
 ```
 
 ---
@@ -215,16 +215,18 @@ Content-Type: application/json
 ```
 
 ### Other Endpoints
-- `GET /api/v1/health` - Health check
-- `GET /api/v1/model/info` - Model metadata
-- `GET /api/v1/analyze/history` - Analysis history
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/health` | GET | Health check (model loaded, DB connected) |
+| `/api/v1/model/info` | GET | Model metadata (architecture, status) |
+| `/api/v1/analyze/history` | GET | Paginated analysis history |
 
 ---
 
 ## 📈 System Architecture
 
 ```
-Input Image → Preprocessing → PyTorch CNN (Xception)
+Input Image → Preprocessing → PyTorch CNN (Xception + TTA)
                                     ↓
                               REAL/FAKE + Confidence
                                     ↓
@@ -233,6 +235,8 @@ Input Image → Preprocessing → PyTorch CNN (Xception)
                     Ensemble Engine (Critical Override)
                                     ↓
                           Final Result + Explainability
+                                    ↓
+                              MySQL Database
 ```
 
 ---
@@ -240,18 +244,25 @@ Input Image → Preprocessing → PyTorch CNN (Xception)
 ## 🎓 Research & Validation
 
 ### Dataset Statistics
-- **Total Images**: 7,442
-- **Real Notes**: 4,937 (66.4%)
-- **Fake Notes**: 581 (7.8%) + augmented samples
-- **Balance Ratio**: 8.5:1 (handled with class weights)
+
+| Class | Count | Percentage |
+|-------|-------|------------|
+| Real | 4,937 | 89.5% |
+| Fake | 581 | 10.5% |
+| **Total** | **5,518** | **100%** |
+
+**Balance Ratio**: 8.5:1 (real:fake) — handled with weighted BCELoss
 
 ### Training Methodology
+
 1. **Phase 1** (Epochs 1-8): Train classification head with frozen backbone
 2. **Phase 2** (Epochs 9-15): Fine-tune top 30% of backbone
 3. **Class Balancing**: Fake notes weighted 8.5x to compensate for imbalance
 4. **Augmentation**: Rotation (±20°), zoom (0.85-1.0x), flip, brightness, contrast
+5. **TTA**: 7 augmented predictions averaged at inference
 
 ### Validation Results
+
 | Metric | Before Balancing | After Balancing | Improvement |
 |--------|------------------|-----------------|-------------|
 | Overall Accuracy | 87.50% | **92.88%** | +5.37% |
@@ -268,13 +279,13 @@ Input Image → Preprocessing → PyTorch CNN (Xception)
 - **Frontend**: https://validcash.netlify.app
 
 ### Production Considerations
-- ✅ CORS configured
-- ✅ Rate limiting (10 req/min)
-- ✅ Model caching
-- ✅ Connection pooling
-- ⚠️ Add authentication for production
+- ✅ CORS configured for production domains
+- ✅ Rate limiting (10 req/min per IP)
+- ✅ Model caching on startup
+- ✅ Connection pooling (MySQL)
+- ⚠️ Add authentication for production use
 - ⚠️ Enable HTTPS
-- ⚠️ Set up monitoring
+- ⚠️ Set up monitoring and alerting
 
 ---
 
@@ -283,7 +294,7 @@ Input Image → Preprocessing → PyTorch CNN (Xception)
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/enhancement`)
 3. Commit changes (`git commit -m 'Add enhancement'`)
-4. Push and open PR
+4. Push and open Pull Request
 
 ### Areas for Improvement
 - [ ] Add UV camera for fluorescence detection
@@ -292,6 +303,7 @@ Input Image → Preprocessing → PyTorch CNN (Xception)
 - [ ] Mobile app (React Native/Flutter)
 - [ ] Federated learning with banks
 - [ ] Support more denominations (₹10, ₹20, ₹50, ₹100, ₹200)
+- [ ] MixUp/CutMix augmentation for +2-4% accuracy
 
 ---
 
@@ -304,7 +316,7 @@ This project is for educational and research purposes.
 ## 🙏 Acknowledgments
 
 - **Reserve Bank of India** for security feature specifications
-- **Kaggle Contributors** for currency datasets
+- **Kaggle Contributors** (preetrank) for currency dataset
 - **PyTorch Team** for the deep learning framework
 - **OpenCV Team** for computer vision library
 
@@ -316,6 +328,7 @@ This system is a decision support tool, not a definitive authentication device. 
 
 ---
 
-**Version**: 2.0 (PyTorch Edition)  
+**Version**: 3.0 (PyTorch CUDA Edition)  
 **Last Updated**: April 2026  
-**Framework**: PyTorch 2.x + FastAPI + React
+**Framework**: PyTorch 2.7.1+cu118 + FastAPI + React  
+**GPU**: NVIDIA GTX 1050 (3GB, CUDA 11.8)
