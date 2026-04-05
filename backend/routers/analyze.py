@@ -34,9 +34,9 @@ async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db
         
         # Step 4: OpenCV Security Feature Analysis
         features = analyze_security_features(image, denoised, enhanced, denom_result)
-        
+
         # Step 5: Ensemble Decision
-        ensemble_score, final_result, overall_confidence = compute_ensemble_score(
+        ensemble_score, final_result, overall_confidence, feature_agreement, critical_failures = compute_ensemble_score(
             cnn_result, cnn_confidence, features
         )
         
@@ -115,6 +115,16 @@ async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db
                 "texture_analysis": features["texture_analysis"],
                 "serial_number": features["serial_number"],
                 "dimensions": features["dimensions"],
+                "intaglio_printing": features.get("intaglio_printing", {}),
+                "latent_image": features.get("latent_image", {}),
+                "optically_variable_ink": features.get("optically_variable_ink", {}),
+                "microlettering": features.get("microlettering", {}),
+                "identification_mark": features.get("identification_mark", {}),
+                "angular_lines": features.get("angular_lines", {}),
+                "fluorescence": features.get("fluorescence", {}),
+                "see_through_registration": features.get("see_through_registration", {}),
+                "critical_failures": critical_failures,
+                "feature_agreement": feature_agreement,
             },
             ensemble_score=ensemble_score,
             annotated_image=annotated_base64,

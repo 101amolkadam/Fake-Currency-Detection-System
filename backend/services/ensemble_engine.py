@@ -2,19 +2,38 @@
 
 The CNN is the primary classifier (trained with test-time augmentation and calibration).
 OpenCV features provide supplementary analysis and explainability.
+
+ENHANCED: Now supports 15 security features with proper weighting based on importance.
+CRITICAL features (Security Thread, Watermark, Serial Number) have higher weights.
+If any critical feature fails, the note is likely FAKE.
 """
 
 # CNN is the trained model - it should dominate the decision
-CNN_WEIGHT = 0.80
-OPENCV_WEIGHT = 0.20
+CNN_WEIGHT = 0.75
+OPENCV_WEIGHT = 0.25
 
+# Enhanced feature weights for 15 security features (total = 1.0)
+# Based on importance and difficulty to counterfeit
 FEATURE_WEIGHTS = {
-    "watermark": 0.20,
-    "security_thread": 0.25,
-    "color_analysis": 0.20,
-    "texture_analysis": 0.15,
-    "serial_number": 0.10,
-    "dimensions": 0.10,
+    # CRITICAL FEATURES (56% of OpenCV score)
+    "security_thread": 0.225,      # 30/133 * 100 = 22.5% - Most critical
+    "watermark": 0.188,            # 25/133 * 100 = 18.8% - Critical
+    "serial_number": 0.150,        # 20/133 * 100 = 15.0% - Critical
+    
+    # IMPORTANT FEATURES (37% of OpenCV score)
+    "optically_variable_ink": 0.113,  # 15/133 * 100 = 11.3%
+    "latent_image": 0.090,           # 12/133 * 100 = 9.0%
+    "intaglio_printing": 0.090,      # 12/133 * 100 = 9.0%
+    "see_through_registration": 0.075, # 10/133 * 100 = 7.5%
+    
+    # SUPPORTING FEATURES (27% of OpenCV score)
+    "microlettering": 0.060,        # 8/133 * 100 = 6.0%
+    "fluorescence": 0.053,          # 7/133 * 100 = 5.3%
+    "color_analysis": 0.053,        # 7/133 * 100 = 5.3%
+    "texture_analysis": 0.038,      # 5/133 * 100 = 3.8%
+    "dimensions": 0.038,            # 5/133 * 100 = 3.8%
+    "identification_mark": 0.038,   # 5/133 * 100 = 3.8%
+    "angular_lines": 0.023,         # 3/133 * 100 = 2.3%
 }
 
 # Threshold: score must be >= this to be classified as REAL
@@ -23,6 +42,10 @@ REAL_THRESHOLD = 0.50
 # When CNN is very confident, boost its influence
 HIGH_CNN_CONFIDENCE = 0.80
 HIGH_CNN_BOOST = 0.10  # Additional weight added to CNN when it's very confident
+
+# Critical features that MUST pass for a note to be REAL
+# If any of these fail, the note is almost certainly FAKE
+CRITICAL_FEATURES = {"security_thread", "watermark", "serial_number"}
 
 
 def compute_feature_score(feature_data: dict) -> float:
@@ -58,14 +81,16 @@ def compute_ensemble_score(
 
     Uses weighted voting with dynamic adjustment: when CNN is highly confident,
     it gets more weight. OpenCV features provide supplementary validation.
-    
-    Improved scoring logic:
-    - Invalid features (e.g., bad serial number) are stronger negative signals
+
+    ENHANCED scoring logic:
+    - CRITICAL feature failures (security thread, watermark, serial number) strongly penalize score
+    - Invalid features are stronger negative signals
     - Unknown features don't penalize the result
     - Feature agreement is measured and reported
+    - Critical feature failures can override CNN prediction
 
     Returns:
-        (ensemble_score, final_result, overall_confidence, feature_agreement)
+        (ensemble_score, final_result, overall_confidence, feature_agreement, critical_failures)
     """
     # Dynamic CNN weighting: boost when CNN is very confident
     dynamic_cnn_weight = CNN_WEIGHT
@@ -86,12 +111,13 @@ def compute_ensemble_score(
     features_failed = 0
     features_unknown = 0
     feature_scores = {}
+    critical_failures = []  # Track critical feature failures
 
     for feature_name, weight in FEATURE_WEIGHTS.items():
         feature_data = features.get(feature_name, {})
         feature_score = compute_feature_score(feature_data)
         feature_status = feature_data.get("status", "unknown")
-        
+
         # Track feature statistics
         if feature_status in ("present", "match", "normal", "valid"):
             features_passed += 1
@@ -99,7 +125,16 @@ def compute_ensemble_score(
             features_unknown += 1
         else:
             features_failed += 1
-        
+            # Check if this is a critical feature failure
+            if feature_name in CRITICAL_FEATURES:
+                critical_failures.append({
+                    "feature": feature_name,
+                    "status": feature_status,
+                    "confidence": feature_data.get("confidence", 0.0)
+                })
+                # Apply stronger penalty for critical feature failures
+                feature_score = min(feature_score, 0.15)  # Cap at very low score
+
         feature_scores[feature_name] = feature_score
         opencv_weighted_score += feature_score * weight
         total_opencv_weight += weight
@@ -112,6 +147,13 @@ def compute_ensemble_score(
     # Final ensemble score
     ensemble_score = round(cnn_contrib + opencv_contrib, 4)
 
+    # CRITICAL FEATURE OVERRIDE: If any critical feature fails badly, mark as FAKE
+    # This prevents false positives when CNN is wrong but critical features are missing
+    if critical_failures:
+        # Reduce ensemble score significantly
+        penalty = 0.15 * len(critical_failures)  # 15% penalty per critical failure
+        ensemble_score = round(max(0.0, ensemble_score - penalty), 4)
+
     # Classification
     final_result = "REAL" if ensemble_score >= REAL_THRESHOLD else "FAKE"
 
@@ -120,7 +162,7 @@ def compute_ensemble_score(
         overall_confidence = round(min(1.0, ensemble_score), 4)
     else:
         overall_confidence = round(max(0.0, 1.0 - ensemble_score), 4)
-    
+
     # Feature agreement metric (how many features agree with the result)
     total_checked = features_passed + features_failed
     if total_checked > 0:
@@ -131,4 +173,4 @@ def compute_ensemble_score(
     else:
         feature_agreement = 0.5
 
-    return ensemble_score, final_result, overall_confidence
+    return ensemble_score, final_result, overall_confidence, feature_agreement, critical_failures
