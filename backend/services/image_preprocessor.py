@@ -1,8 +1,7 @@
-"""Image preprocessing utilities - base64 decoding and preprocessing."""
+"""Image preprocessing utilities - PyTorch compatible, no TensorFlow dependency."""
 import base64
 import cv2
 import numpy as np
-import tensorflow as tf
 
 
 def decode_base64_image(base64_string: str) -> tuple:
@@ -32,6 +31,27 @@ def decode_base64_image(base64_string: str) -> tuple:
     return image, mime_type
 
 
+def preprocess_image_for_xception(image: np.ndarray) -> np.ndarray:
+    """Preprocess image for Xception CNN without TensorFlow.
+    
+    Xception preprocessing:
+    1. Resize to 299x299
+    2. Convert BGR to RGB
+    3. Scale pixels to [-1, 1] range (Xception expects this)
+    """
+    # Resize to Xception input size
+    resized = cv2.resize(image, (299, 299))
+    
+    # Convert BGR to RGB
+    rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    
+    # Normalize to [-1, 1] range (same as tf.keras.applications.xception.preprocess_input)
+    # Xception uses: (pixel / 127.5) - 1.0
+    normalized = (rgb_image.astype(np.float32) / 127.5) - 1.0
+    
+    return normalized
+
+
 def preprocess_image(image: np.ndarray) -> tuple:
     """Preprocess image for CNN and OpenCV analysis.
 
@@ -41,15 +61,8 @@ def preprocess_image(image: np.ndarray) -> tuple:
         - denoised: denoised full-size image for OpenCV analysis
         - enhanced: CLAHE-enhanced grayscale image
     """
-    # Resize to Xception input size
-    resized = cv2.resize(image, (299, 299))
-    
-    # Convert BGR to RGB for Xception (OpenCV uses BGR, Xception expects RGB)
-    rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-    
-    # Use proper Xception preprocessing - this normalizes using ImageNet statistics
-    # Xception.preprocess_input scales pixels to [-1, 1] range, not [0, 1]
-    normalized = tf.keras.applications.xception.preprocess_input(rgb_image.astype(np.float32))
+    # CNN preprocessing (no TensorFlow)
+    cnn_input = preprocess_image_for_xception(image)
 
     # Denoise for OpenCV analysis
     denoised = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
@@ -59,4 +72,4 @@ def preprocess_image(image: np.ndarray) -> tuple:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
 
-    return normalized, denoised, enhanced
+    return cnn_input, denoised, enhanced
