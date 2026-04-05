@@ -7,77 +7,222 @@ from skimage.feature import graycomatrix, graycoprops
 
 
 def detect_watermark(gray: np.ndarray, image: np.ndarray, denomination: str) -> dict:
-    """Detect watermark by analyzing brightness variation in expected region."""
+    """Detect watermark by analyzing brightness variation and texture patterns in expected region.
+    
+    Watermarks on Indian currency show as semi-transparent portrait/region with:
+    - Subtle brightness differences from surrounding areas
+    - Smooth texture (lower variance than surrounding printed areas)
+    - Visible edge patterns
+    """
     h, w = gray.shape[:2]
-    wm_x1, wm_x2 = int(w * 0.55), int(w * 0.85)
-    wm_y1, wm_y2 = int(h * 0.2), int(h * 0.7)
+    
+    # Watermark region varies by denomination
+    if denomination == "₹2000":
+        wm_x1, wm_x2 = int(w * 0.50), int(w * 0.85)
+        wm_y1, wm_y2 = int(h * 0.15), int(h * 0.75)
+    else:  # ₹500 and others
+        wm_x1, wm_x2 = int(w * 0.55), int(w * 0.85)
+        wm_y1, wm_y2 = int(h * 0.20), int(h * 0.70)
+    
+    # Extract watermark ROI
     roi = gray[wm_y1:wm_y2, wm_x1:wm_x2]
     if roi.size == 0:
-        return {"status": "present", "confidence": 0.5, "location": None, "ssim_score": None}
+        return {"status": "unknown", "confidence": 0.5, "location": None, "ssim_score": None}
+
+    # Method 1: Brightness variation analysis
+    # Compare watermark region with surrounding areas
+    top = gray[max(0, wm_y1-40):wm_y1, wm_x1:wm_x2]
+    bottom = gray[wm_y2:min(h, wm_y2+40), wm_x1:wm_x2]
+    left = gray[wm_y1:wm_y2, max(0, wm_x1-40):wm_x1]
+    right = gray[wm_y1:wm_y2, wm_x2:min(w, wm_x2+40)]
+    
+    surrounding_regions = [r for r in [top, bottom, left, right] if r.size > 0]
+    if not surrounding_regions:
+        return {"status": "unknown", "confidence": 0.5, "location": None, "ssim_score": None}
     
     roi_mean = np.mean(roi)
-    top = gray[max(0, wm_y1-30):wm_y1, wm_x1:wm_x2]
-    bottom = gray[wm_y2:min(h, wm_y2+30), wm_x1:wm_x2]
-    surr = [np.mean(r) for r in [top, bottom] if r.size > 0]
+    roi_std = np.std(roi)
+    surrounding_means = [np.mean(r) for r in surrounding_regions]
+    surrounding_avg = np.mean(surrounding_means)
     
-    if not surr:
-        return {"status": "present", "confidence": 0.55, "location": None, "ssim_score": None}
+    # Watermark typically has lower contrast (smoother)
+    brightness_diff = abs(roi_mean - surrounding_avg)
     
-    diff = abs(roi_mean - np.mean(surr))
-    # Watermark shows 5-80 level difference
-    if 5 <= diff <= 80:
-        confidence = round(min(0.9, 0.4 + diff / 200.0), 4)
-    elif diff < 5:
-        confidence = round(max(0.3, 0.5 - diff), 4)
+    # Method 2: Texture analysis - watermarks are smoother
+    roi_variance = np.var(roi)
+    surrounding_variance = np.mean([np.var(r) for r in surrounding_regions])
+    
+    # Watermark should have lower variance (smoother texture)
+    smoothness_ratio = roi_variance / surrounding_variance if surrounding_variance > 0 else 1.0
+    
+    # Method 3: Edge density - watermarks have fewer sharp edges
+    roi_edges = cv2.Canny(roi, 50, 150)
+    roi_edge_density = np.sum(roi_edges > 0) / roi_edges.size
+    
+    # Surrounding edge density
+    surrounding_edges = []
+    for r in surrounding_regions:
+        edge = cv2.Canny(r, 50, 150)
+        surrounding_edges.append(np.sum(edge > 0) / edge.size)
+    surrounding_edge_density = np.mean(surrounding_edges)
+    
+    # Score calculation
+    watermark_indicators = 0
+    
+    # Brightness difference should be moderate (not too high, not too low)
+    if 3 <= brightness_diff <= 60:
+        watermark_indicators += 1
+        brightness_score = min(1.0, brightness_diff / 30.0)
+    elif brightness_diff < 3:
+        brightness_score = 0.3  # Too uniform - suspicious
     else:
-        confidence = round(max(0.3, 0.6 - diff / 200.0), 4)
+        brightness_score = 0.4  # Too different - might not be watermark
     
+    # Smoothness check - watermark should be smoother
+    if 0.3 <= smoothness_ratio <= 0.9:
+        watermark_indicators += 1
+        smoothness_score = 1.0 - smoothness_ratio
+    else:
+        smoothness_score = 0.3
+    
+    # Edge density check - watermark should have fewer edges
+    if roi_edge_density < surrounding_edge_density * 0.8:
+        watermark_indicators += 1
+        edge_score = 1.0 - (roi_edge_density / max(surrounding_edge_density, 0.01))
+    else:
+        edge_score = 0.3
+    
+    # Combined confidence
+    confidence = round(
+        0.35 * brightness_score + 
+        0.35 * smoothness_score + 
+        0.30 * max(0.0, edge_score),
+        4
+    )
+    
+    # Status determination
+    if watermark_indicators >= 2:
+        status = "present"
+        confidence = max(0.6, confidence)  # Boost confidence if indicators present
+    elif watermark_indicators >= 1:
+        status = "present"
+        confidence = max(0.5, min(0.65, confidence))
+    else:
+        status = "unknown"
+        confidence = max(0.4, min(0.55, confidence))
+
     return {
-        "status": "present", "confidence": confidence,
+        "status": status, 
+        "confidence": round(confidence, 4),
         "location": {"x": wm_x1, "y": wm_y1, "width": wm_x2 - wm_x1, "height": wm_y2 - wm_y1},
-        "ssim_score": None
+        "ssim_score": None,
+        "brightness_diff": round(float(brightness_diff), 2),
+        "smoothness_ratio": round(float(smoothness_ratio), 4)
     }
 
 
 def detect_security_thread(gray: np.ndarray, image: np.ndarray) -> dict:
-    """Detect security thread using vertical line detection."""
+    """Detect security thread using multiple validation methods.
+    
+    Security threads on Indian currency are:
+    - Embedded metallic/plastic strip visible when held to light
+    - Usually located in left-center region
+    - Appear as dark vertical line with consistent width
+    - May have text/patterns on them
+    """
     h, w = gray.shape[:2]
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    thread_x1, thread_x2 = int(w * 0.25), int(w * 0.45)
-    thread_region = blurred[:, thread_x1:thread_x2]
-    edges = cv2.Canny(thread_region, 30, 100)
-    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h // 3))
-    kh = min(kernel_v.shape[1], thread_region.shape[1])
-    if kh > 0:
-        dilated = cv2.dilate(edges, kernel_v[:, :kh], iterations=1)
-    else:
-        dilated = edges
     
-    thread_pixels = np.sum(dilated > 0)
-    total_pixels = dilated.shape[0] * dilated.shape[1] if dilated.size > 0 else 1
-    thread_ratio = thread_pixels / total_pixels
+    # Security thread region (left-center, full height)
+    thread_x1, thread_x2 = int(w * 0.20), int(w * 0.45)
+    thread_region = gray[:, thread_x1:thread_x2]
     
-    lines = cv2.HoughLinesP(dilated, 1, np.pi / 180, threshold=50,
-                            minLineLength=h // 3, maxLineGap=20)
-    vertical_count = 0
+    if thread_region.size == 0:
+        return {"status": "unknown", "confidence": 0.5, "position": "unknown",
+                "coordinates": {"x_start": None, "x_end": None}}
+    
+    # Method 1: Vertical line detection using Canny + HoughLines
+    blurred = cv2.GaussianBlur(thread_region, (3, 3), 0)
+    edges = cv2.Canny(blurred, 40, 120)
+    
+    # Morphological operations to enhance vertical lines
+    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h // 4))
+    dilated = cv2.dilate(edges, kernel_v, iterations=1)
+    
+    # Detect vertical lines using HoughLinesP
+    lines = cv2.HoughLinesP(
+        dilated, 
+        1, np.pi / 180, 
+        threshold=40,
+        minLineLength=h // 3, 
+        maxLineGap=30
+    )
+    
+    vertical_lines = []
     if lines is not None:
         for line in lines:
             x1, y1, x2, y2 = line[0]
-            if abs(x2 - x1) < abs(y2 - y1) * 0.3:
-                vertical_count += 1
+            # Check if line is predominantly vertical
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+            if dy > 0 and dx / dy < 0.3:  # More vertical than horizontal
+                vertical_lines.append((x1 + thread_x1, x2 + thread_x1, y1, y2))
     
-    line_score = min(1.0, vertical_count / 3.0)
-    pixel_score = min(1.0, thread_ratio * 500)
-    confidence = round(0.6 * line_score + 0.4 * pixel_score, 4)
-    status = "present" if confidence > 0.3 else "missing"
+    # Method 2: Pixel intensity analysis - security thread appears darker
+    # Analyze vertical projection profile
+    vertical_profile = np.mean(thread_region, axis=0)
+    thread_col = np.argmin(vertical_profile)
+    min_intensity = np.min(vertical_profile)
+    avg_intensity = np.mean(vertical_profile)
     
+    # Security thread should be noticeably darker
+    intensity_ratio = min_intensity / avg_intensity if avg_intensity > 0 else 1.0
+    has_dark_region = intensity_ratio < 0.7
+    
+    # Method 3: Texture analysis - metallic threads have unique texture
+    # Use variance in horizontal direction
+    horizontal_variance = np.var(thread_region, axis=0)
+    thread_variance = np.min(horizontal_variance)
+    avg_variance = np.mean(horizontal_variance)
+    variance_ratio = thread_variance / avg_variance if avg_variance > 0 else 1.0
+    
+    # Scoring
+    line_score = min(1.0, len(vertical_lines) / 3.0) if vertical_lines else 0.0
+    pixel_score = max(0.0, 1.0 - intensity_ratio) if has_dark_region else 0.2
+    texture_score = max(0.0, 1.0 - variance_ratio)
+    
+    # Combined confidence with weighted methods
+    confidence = round(
+        0.50 * line_score + 
+        0.30 * pixel_score + 
+        0.20 * texture_score,
+        4
+    )
+    
+    # Determine status
+    if confidence > 0.5:
+        status = "present"
+    elif confidence > 0.3:
+        status = "present"
+        confidence = max(0.35, confidence)
+    else:
+        status = "missing"
+        confidence = max(0.2, min(0.35, confidence))
+    
+    # Calculate thread position
     thread_x = thread_x1 + (thread_x2 - thread_x1) // 2
-    if lines is not None and len(lines) > 0:
-        thread_x = int(np.mean([line[0][0] + thread_x1 for line in lines]))
+    if vertical_lines:
+        # Use average position of detected lines
+        thread_x = int(np.mean([(x1 + x2) / 2 for x1, x2, _, _ in vertical_lines]))
+    elif has_dark_region:
+        thread_x = thread_col + thread_x1
     
     return {
-        "status": status, "confidence": confidence, "position": "vertical",
-        "coordinates": {"x_start": thread_x - 3, "x_end": thread_x + 3}
+        "status": status, 
+        "confidence": confidence, 
+        "position": "vertical",
+        "coordinates": {"x_start": thread_x - 5, "x_end": thread_x + 5},
+        "vertical_lines_detected": len(vertical_lines),
+        "intensity_ratio": round(float(intensity_ratio), 4)
     }
 
 
@@ -157,34 +302,68 @@ def detect_serial_number(gray: np.ndarray, denomination: str) -> dict:
     y1, y2 = int(h * 0.85), int(h * 0.96)
     x1, x2 = int(w * 0.03), int(w * 0.52)
     roi = gray[y1:y2, x1:x2]
-    
+
     if roi.size == 0:
-        return {"status": "valid", "confidence": 0.5, "extracted_text": None, "format_valid": False}
-    
+        return {"status": "unknown", "confidence": 0.5, "extracted_text": None, "format_valid": False}
+
+    # Multiple preprocessing attempts for better OCR
     _, binary = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     adaptive = cv2.adaptiveThreshold(roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY, 11, 2)
     
+    # Additional: inverted versions for better text detection
+    _, binary_inv = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    adaptive_inv = cv2.bitwise_not(adaptive)
+
     texts = []
-    for img in [binary, adaptive]:
+    for img in [binary, adaptive, binary_inv, adaptive_inv]:
         try:
-            t = pytesseract.image_to_string(img, config='--psm 7 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ').strip()
-            if t and len(t) >= 5:
-                texts.append(t)
+            # Try different PSM modes for better text detection
+            for psm in ['7', '6', '13']:
+                t = pytesseract.image_to_string(
+                    img, 
+                    config=f'--psm {psm} -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                ).strip()
+                if t and len(t) >= 5:
+                    # Clean up text
+                    cleaned = ''.join(c for c in t if c.isalnum()).upper()
+                    if len(cleaned) >= 5:
+                        texts.append(cleaned)
         except Exception:
             pass
-    
+
     if not texts:
-        return {"status": "valid", "confidence": 0.5, "extracted_text": None, "format_valid": False}
-    
+        return {"status": "unknown", "confidence": 0.5, "extracted_text": None, "format_valid": False}
+
+    # Use the longest text found (most complete serial number)
     text = max(texts, key=len)
-    pattern = r'^[0-9][A-Z]{2,3}[0-9]{6,9}$'
-    alt_pattern = r'^[A-Z]{2,3}[0-9]{6,9}$'
-    is_valid = bool(re.match(pattern, text.strip())) or bool(re.match(alt_pattern, text.strip()))
     
-    confidence = round(0.9 if is_valid else 0.5, 4)
+    # Validate serial number format (Indian currency format)
+    # Common patterns: 1ABC1234567, AB1234567, etc.
+    patterns = [
+        r'^[0-9][A-Z]{2,3}[0-9]{6,9}$',  # 1ABC1234567
+        r'^[A-Z]{2,3}[0-9]{6,9}$',         # AB1234567
+        r'^[A-Z][0-9]{9,10}$',              # A123456789
+        r'^[0-9]{9,10}$',                    # Just numbers (fallback)
+    ]
+    
+    is_valid = any(bool(re.match(pattern, text.strip())) for pattern in patterns)
+
+    # Higher confidence if format is valid, lower if OCR failed or format invalid
+    if is_valid:
+        confidence = round(0.9, 4)
+        status = "valid"
+    elif text:
+        # Text extracted but format doesn't match - could be suspicious
+        confidence = round(0.4, 4)
+        status = "invalid"
+    else:
+        # No text extracted
+        confidence = round(0.5, 4)
+        status = "unknown"
+
     return {
-        "status": "valid" if is_valid else "valid",  # Don't penalize if OCR can't read
+        "status": status,
         "confidence": confidence,
         "extracted_text": text.strip() if text else None,
         "format_valid": is_valid
