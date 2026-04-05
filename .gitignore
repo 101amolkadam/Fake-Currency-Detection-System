@@ -1,5 +1,4 @@
 # Dependencies
-node_modules/
 backend/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
@@ -31,11 +30,6 @@ desktop.ini
 
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 logs/
 
 # Testing
@@ -48,10 +42,11 @@ coverage/
 *.temp
 .cache/
 
-# Model files (large binaries - use Git LFS if needed)
-backend/models/*.keras
+# Model files (large binaries)
+backend/models/*.pth
 backend/models/*.h5
-backend/models/*.tf
+backend/models/*.keras
+backend/models/*.pt
 !backend/models/.gitkeep
 
 # Database
@@ -59,8 +54,14 @@ backend/models/*.tf
 *.sqlite
 *.sqlite3
 
-# Documentation build
-docs/_build/
+# Training data and datasets
+backend/training_data/
+backend/dataset_downloads/
+backend/reference_data/
+
+# Validation results
+backend/validation_*.json
+backend/training_history*.json
 
 # Jupyter
 .ipynb_checkpoints/
@@ -77,17 +78,18 @@ venv/
 ENV/
 env/
 
-# Local documentation
+# Documentation build
+docs/_build/
 site/
 
-# Test images and datasets
-test_images/Dataset/
+# Local documentation
+*.mdx
 
 # Misc
 *.bak
 *.backup
 *.local
-
-# Temporary Office files
 ~$*
-*.tmp
+
+# Office temp files
+~$*
