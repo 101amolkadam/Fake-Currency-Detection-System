@@ -48,11 +48,11 @@ coverage/
 *.temp
 .cache/
 
-# Model files (large binaries)
-# Uncomment if you don't want to commit the model
-# backend/models/*.h5
-# backend/models/*.pkl
-# backend/models/*.pb
+# Model files (large binaries - use Git LFS if needed)
+backend/models/*.keras
+backend/models/*.h5
+backend/models/*.tf
+!backend/models/.gitkeep
 
 # Database
 *.db
