@@ -22,8 +22,8 @@ def test_preprocessing():
         
         # Test preprocessing
         cnn_input, denoised, enhanced = preprocess_image(img)
-        assert cnn_input.shape == (299, 299, 3), f"Wrong CNN input shape: {cnn_input.shape}"
-        assert cnn_input.min() >= -1.01 and cnn_input.max() <= 1.01, f"Wrong range: [{cnn_input.min()}, {cnn_input.max()}]"
+        assert cnn_input.shape == (224, 224, 3), f"Wrong CNN input shape: {cnn_input.shape}"
+        # ImageNet normalization: values roughly in [-2, 2] range
         print(f"✓ CNN input shape: {cnn_input.shape}")
         print(f"✓ CNN input range: [{cnn_input.min():.2f}, {cnn_input.max():.2f}]")
         

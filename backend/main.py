@@ -83,7 +83,7 @@ async def health_check():
 async def model_info():
     """Model metadata endpoint."""
     return {
-        "architecture": "Xception (ImageNet pretrained + fine-tuned)",
+        "architecture": "MobileNetV3-Large (ImageNet pretrained + fine-tuned)",
         "status": "loaded" if services.model_loader.is_model_loaded() else "not_loaded",
         "supported_denominations": ["₹10", "₹20", "₹50", "₹100", "₹200", "₹500", "₹2000"],
         "fallback_mode": not services.model_loader.is_model_loaded(),

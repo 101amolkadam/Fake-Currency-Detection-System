@@ -106,7 +106,7 @@ async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db
                 "cnn_classification": {
                     "result": cnn_result,
                     "confidence": cnn_confidence,
-                    "model": "Xception" if is_model_loaded() else "OpenCV-only",
+                    "model": "MobileNetV3-Large" if is_model_loaded() else "OpenCV-only",
                     "processing_time_ms": cnn_time_ms,
                 },
                 "watermark": features["watermark"],

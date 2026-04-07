@@ -12,7 +12,7 @@ import torchvision.transforms as transforms
 
 _model = None
 _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-_input_size = 299
+_input_size = 224
 
 # Print device info on import
 print(f"[INFO] PyTorch backend initialized on {_device}")
@@ -21,15 +21,15 @@ if torch.cuda.is_available():
 
 
 class XceptionCurrency(nn.Module):
-    """PyTorch Xception model for currency classification."""
+    """MobileNetV3 model for currency classification."""
     def __init__(self):
         super().__init__()
-        # Load pretrained Xception
-        self.backbone = models.xception(weights=models.Xception_Weights.IMAGENET1K_V1)
-        num_features = self.backbone.last_linear.in_features
-        self.backbone.last_linear = nn.Identity()
-        
+        # Load pretrained MobileNetV3-Large
+        self.backbone = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1)
+        self.backbone.classifier = nn.Identity()
+
         # Custom classification head (same architecture as training)
+        num_features = 960  # MobileNetV3-Large avgpool output size
         self.classifier = nn.Sequential(
             nn.BatchNorm1d(num_features),
             nn.Dropout(0.5),
@@ -43,9 +43,10 @@ class XceptionCurrency(nn.Module):
             nn.Linear(128, 1),
             nn.Sigmoid()
         )
-    
+
     def forward(self, x):
         x = self.backbone(x)
+        x = x.flatten(1)
         x = self.classifier(x)
         return x.squeeze(1)
 
@@ -144,7 +145,9 @@ def _apply_tta_augmentations(image_tensor: torch.Tensor) -> list:
     
     # Zoom 1.1x
     zoomed_np = cv2.resize(img_np, (int(cols * 1.1), int(rows * 1.1)))
-    zoomed_np = zoomed_np[(rows*0.1)//2:(rows*0.1)//2 + rows, (cols*0.1)//2:(cols*0.1)//2 + cols]
+    crop_y = int((rows * 0.1) // 2)
+    crop_x = int((cols * 0.1) // 2)
+    zoomed_np = zoomed_np[crop_y:crop_y + rows, crop_x:crop_x + cols]
     augmented.append(torch.from_numpy(zoomed_np.transpose(2, 0, 1)).float().to(_device))
     
     return augmented
@@ -167,11 +170,11 @@ def classify_currency(preprocessed_image: np.ndarray, use_tta: bool = True) -> t
     """
     Run CNN inference for authenticity classification.
     Uses Test-Time Augmentation (TTA) for robust predictions.
-    
+
     Args:
-        preprocessed_image: numpy array shape (299, 299, 3), values in [-1, 1]
+        preprocessed_image: numpy array shape (224, 224, 3), ImageNet normalized
         use_tta: Whether to use test-time augmentation
-    
+
     Returns:
         (authenticity_result, denomination_result, denom_confidence, auth_confidence)
     """
