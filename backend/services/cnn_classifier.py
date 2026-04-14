@@ -1,34 +1,50 @@
-"""CNN classifier service - PyTorch Xception model inference with test-time augmentation."""
-import numpy as np
+"""CNN classifier service - PyTorch MobileNetV3-Large model inference with TTA.
+
+This module provides currency note classification (REAL/FAKE) using a
+MobileNetV3-Large CNN trained on Indian currency dataset with:
+- Test-Time Augmentation (TTA) for robust predictions
+- Temperature scaling for calibrated confidence
+- GPU acceleration (CUDA) when available
+"""
 import os
-import time
+from pathlib import Path
+from typing import Optional
+
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models
-import cv2
-from config import settings
-from PIL import Image
 import torchvision.transforms as transforms
+from PIL import Image
 
-_model = None
+from config import settings
+
+# Model state
+_model: Optional[nn.Module] = None
 _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-_input_size = 224
+_INPUT_SIZE = 224
 
-# Print device info on import
+# Log device initialization
 print(f"[INFO] PyTorch backend initialized on {_device}")
 if torch.cuda.is_available():
-    print(f"[INFO] GPU: {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB)")
+    gpu_name = torch.cuda.get_device_name(0)
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+    print(f"[INFO] GPU: {gpu_name} ({gpu_memory:.1f}GB VRAM)")
 
 
-class XceptionCurrency(nn.Module):
-    """MobileNetV3 model for currency classification."""
+class MobileNetV3Currency(nn.Module):
+    """MobileNetV3-Large model for binary currency authenticity classification."""
+    
     def __init__(self):
         super().__init__()
-        # Load pretrained MobileNetV3-Large
-        self.backbone = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1)
-        self.backbone.classifier = nn.Identity()
+        # Load pretrained MobileNetV3-Large backbone
+        self.backbone = models.mobilenet_v3_large(
+            weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
+        )
+        self.backbone.classifier = nn.Identity()  # Remove default classifier
 
-        # Custom classification head (same architecture as training)
+        # Custom classification head
         num_features = 960  # MobileNetV3-Large avgpool output size
         self.classifier = nn.Sequential(
             nn.BatchNorm1d(num_features),
@@ -44,50 +60,63 @@ class XceptionCurrency(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the network."""
         x = self.backbone(x)
         x = x.flatten(1)
         x = self.classifier(x)
         return x.squeeze(1)
 
 
-def load_model():
-    """Load trained PyTorch Xception model at startup."""
+def load_model() -> bool:
+    """Load trained PyTorch model at startup.
+    
+    Returns:
+        bool: True if model loaded successfully, False otherwise
+    """
     global _model
+    
     try:
-        # Try PyTorch .pth format first, then fallback to .keras/.h5
-        pth_path = os.path.join(os.path.dirname(settings.MODEL_PATH), 'cnn_pytorch_best.pth')
-        pth_final = os.path.join(os.path.dirname(settings.MODEL_PATH), 'cnn_pytorch_final.pth')
+        # Search for model checkpoint
+        model_dir = Path(settings.MODEL_PATH).parent
+        model_paths = [
+            model_dir / 'cnn_pytorch_best.pth',
+            model_dir / 'cnn_pytorch_final.pth',
+        ]
         
         model_path = None
-        if os.path.exists(pth_path):
-            model_path = pth_path
-        elif os.path.exists(pth_final):
-            model_path = pth_final
-        else:
-            print(f"[WARN] No PyTorch model found. Trying TensorFlow model...")
+        for path in model_paths:
+            if path.exists():
+                model_path = path
+                break
+        
+        if model_path is None:
+            print("[WARN] No PyTorch model checkpoint found. Running in fallback mode.")
             return False
 
         print(f"[INFO] Loading PyTorch model from {model_path}...")
-        _model = XceptionCurrency()
+        _model = MobileNetV3Currency()
+        
+        # Load checkpoint
         checkpoint = torch.load(model_path, map_location=_device, weights_only=True)
         
-        # Handle both full checkpoint and state_dict only
-        if 'model_state_dict' in checkpoint:
+        # Handle both full checkpoint dict and state_dict only
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             _model.load_state_dict(checkpoint['model_state_dict'])
         else:
             _model.load_state_dict(checkpoint)
-        
+
         _model.to(_device)
         _model.eval()
-        
-        # Warm up
-        dummy = torch.zeros(1, 3, _input_size, _input_size).to(_device)
+
+        # Warm up model with dummy input
+        dummy_input = torch.zeros(1, 3, _INPUT_SIZE, _INPUT_SIZE).to(_device)
         with torch.no_grad():
-            _model(dummy)
-        
+            _model(dummy_input)
+
         print(f"[INFO] PyTorch model loaded successfully on {_device}")
         return True
+        
     except Exception as e:
         print(f"[ERROR] Failed to load PyTorch model: {e}")
         import traceback
@@ -96,17 +125,19 @@ def load_model():
         return False
 
 
-def get_model():
+def get_model() -> Optional[nn.Module]:
+    """Get the loaded model instance."""
     return _model
 
 
-def is_model_loaded():
+def is_model_loaded() -> bool:
+    """Check if model is loaded and ready."""
     return _model is not None
 
 
-def _apply_tta_augmentations(image_tensor: torch.Tensor) -> list:
-    """
-    Generate augmented versions for Test-Time Augmentation (TTA).
+def _apply_tta_augmentations(image_tensor: torch.Tensor) -> list[torch.Tensor]:
+    """Generate augmented versions for Test-Time Augmentation (TTA).
+    
     Creates 7 variations:
     1. Original
     2. Horizontal flip
@@ -115,125 +146,159 @@ def _apply_tta_augmentations(image_tensor: torch.Tensor) -> list:
     5. Brightness +10%
     6. Brightness -10%
     7. Slight zoom (1.1x)
+    
+    Args:
+        image_tensor: Input image tensor (C, H, W)
+        
+    Returns:
+        List of augmented image tensors
     """
     augmented = [image_tensor]  # Original
-    
+
     # Horizontal flip
     augmented.append(torch.flip(image_tensor, [2]))
-    
-    # For rotations and other augmentations, convert to numpy and back
+
+    # Convert to numpy for geometric transformations
     img_np = image_tensor.cpu().numpy().transpose(1, 2, 0)
-    
-    # Rotation +10°
     rows, cols = img_np.shape[:2]
+
+    # Rotation +10°
     M_plus = cv2.getRotationMatrix2D((cols/2, rows/2), 10, 1.0)
     rotated_plus = cv2.warpAffine(img_np, M_plus, (cols, rows))
-    augmented.append(torch.from_numpy(rotated_plus.transpose(2, 0, 1)).float().to(_device))
-    
+    augmented.append(
+        torch.from_numpy(rotated_plus.transpose(2, 0, 1)).float().to(_device)
+    )
+
     # Rotation -10°
     M_minus = cv2.getRotationMatrix2D((cols/2, rows/2), -10, 1.0)
     rotated_minus = cv2.warpAffine(img_np, M_minus, (cols, rows))
-    augmented.append(torch.from_numpy(rotated_minus.transpose(2, 0, 1)).float().to(_device))
-    
+    augmented.append(
+        torch.from_numpy(rotated_minus.transpose(2, 0, 1)).float().to(_device)
+    )
+
     # Brightness +10%
-    brighter = torch.clamp(image_tensor * 1.1, -1.0, 1.0)
-    augmented.append(brighter)
-    
+    augmented.append(torch.clamp(image_tensor * 1.1, -1.0, 1.0))
+
     # Brightness -10%
-    darker = torch.clamp(image_tensor * 0.9, -1.0, 1.0)
-    augmented.append(darker)
-    
+    augmented.append(torch.clamp(image_tensor * 0.9, -1.0, 1.0))
+
     # Zoom 1.1x
     zoomed_np = cv2.resize(img_np, (int(cols * 1.1), int(rows * 1.1)))
     crop_y = int((rows * 0.1) // 2)
     crop_x = int((cols * 0.1) // 2)
     zoomed_np = zoomed_np[crop_y:crop_y + rows, crop_x:crop_x + cols]
-    augmented.append(torch.from_numpy(zoomed_np.transpose(2, 0, 1)).float().to(_device))
-    
+    augmented.append(
+        torch.from_numpy(zoomed_np.transpose(2, 0, 1)).float().to(_device)
+    )
+
     return augmented
 
 
-def _calibrate_confidence(raw_confidence: float) -> float:
-    """Apply temperature scaling to calibrate model confidence."""
-    temperature = 1.5
+def _calibrate_confidence(raw_confidence: float, temperature: float = 1.5) -> float:
+    """Apply temperature scaling to calibrate model confidence.
     
+    Args:
+        raw_confidence: Raw model output (0-1)
+        temperature: Temperature scaling parameter (>1 softens confidence)
+        
+    Returns:
+        Calibrated confidence score
+    """
     epsilon = 1e-7
     raw_confidence = np.clip(raw_confidence, epsilon, 1 - epsilon)
-    logit = np.log(raw_confidence / (1 - raw_confidence))
-    calibrated_logit = logit / temperature
-    calibrated = 1 / (1 + np.exp(-calibrated_logit))
     
-    return calibrated
+    # Convert to logit space
+    logit = np.log(raw_confidence / (1 - raw_confidence))
+    
+    # Apply temperature scaling
+    calibrated_logit = logit / temperature
+    
+    # Convert back to probability
+    calibrated = 1 / (1 + np.exp(-calibrated_logit))
+
+    return float(calibrated)
 
 
-def classify_currency(preprocessed_image: np.ndarray, use_tta: bool = True) -> tuple:
-    """
-    Run CNN inference for authenticity classification.
+def classify_currency(
+    preprocessed_image: np.ndarray,
+    use_tta: bool = True
+) -> tuple[str, str, float, float]:
+    """Run CNN inference for authenticity classification.
+    
     Uses Test-Time Augmentation (TTA) for robust predictions.
-
+    
     Args:
-        preprocessed_image: numpy array shape (224, 224, 3), ImageNet normalized
-        use_tta: Whether to use test-time augmentation
-
+        preprocessed_image: numpy array, shape (224, 224, 3) or (3, 224, 224)
+                           ImageNet normalized
+        use_tta: Whether to use test-time augmentation (default: True)
+        
     Returns:
-        (authenticity_result, denomination_result, denom_confidence, auth_confidence)
+        Tuple of (authenticity_result, denomination_result, denom_confidence, auth_confidence)
+        - authenticity_result: "REAL" or "FAKE"
+        - denomination_result: Detected denomination (currently defaults to ₹500)
+        - denom_confidence: Confidence in denomination (currently 0.5)
+        - auth_confidence: Confidence in authenticity (0-1)
     """
     global _model
-    
+
     if _model is None:
+        # Fallback when model not loaded
         return "REAL", "₹500", 0.5, 0.5
-    
+
     try:
-        # Convert numpy to tensor: (H, W, C) -> (C, H, W) -> add batch dim
+        # Convert to tensor if needed
         if preprocessed_image.shape[0] == 3:  # Already (C, H, W)
             image_tensor = torch.from_numpy(preprocessed_image).float().to(_device)
         else:  # (H, W, C)
-            image_tensor = torch.from_numpy(preprocessed_image.transpose(2, 0, 1)).float().to(_device)
-        
+            image_tensor = torch.from_numpy(
+                preprocessed_image.transpose(2, 0, 1)
+            ).float().to(_device)
+
         _model.eval()
-        
+
         if use_tta:
             augmented_images = _apply_tta_augmentations(image_tensor)
-            
             authenticity_scores = []
-            
+
             for aug_img in augmented_images:
                 with torch.no_grad():
                     output = _model(aug_img.unsqueeze(0))
                     authenticity_scores.append(output.item())
-            
-            # Average predictions
-            auth_score = np.mean(authenticity_scores)
-            auth_std = np.std(authenticity_scores)
+
+            # Average predictions and calculate variance
+            auth_score = float(np.mean(authenticity_scores))
+            auth_std = float(np.std(authenticity_scores))
         else:
             # Single prediction
             with torch.no_grad():
                 output = _model(image_tensor.unsqueeze(0))
                 auth_score = output.item()
                 auth_std = 0.0
-        
-        # Apply calibration
+
+        # Apply temperature scaling calibration
         auth_score = _calibrate_confidence(auth_score)
-        
-        # Authenticity: sigmoid output (0=FAKE, 1=REAL)
+
+        # Determine authenticity result
         authenticity_result = "REAL" if auth_score >= 0.5 else "FAKE"
         auth_confidence = auth_score if auth_score >= 0.5 else 1.0 - auth_score
-        
-        # Reduce confidence if TTA has high variance
+
+        # Reduce confidence if TTA has high variance (uncertain prediction)
         if use_tta and auth_std > 0.1:
             penalty = min(0.2, auth_std * 0.5)
             auth_confidence = max(0.5, auth_confidence - penalty)
-        
-        # Denomination (single output model - default to ₹500)
+
+        # Denomination (single output model - defaults to ₹500)
+        # TODO: Implement multi-output model for denomination classification
         denomination_result = "₹500"
         denom_confidence = 0.5
-        
+
         return (
             authenticity_result,
             denomination_result,
             round(denom_confidence, 4),
             round(auth_confidence, 4)
         )
+        
     except Exception as e:
         print(f"[ERROR] PyTorch CNN classification failed: {e}")
         import traceback

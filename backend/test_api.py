@@ -27,166 +27,133 @@ def create_test_image_base64():
 def test_health_endpoint():
     """Test /api/v1/health endpoint"""
     print("\n=== TEST 1: Health Endpoint ===")
-    try:
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        response = client.get("/api/v1/health")
-        
-        assert response.status_code == 200, f"Status: {response.status_code}"
-        data = response.json()
-        print(f"✓ Status: {response.status_code}")
-        print(f"✓ Response keys: {list(data.keys())}")
-        print(f"  Model loaded: {data.get('model_loaded', False)}")
-        print(f"  DB connected: {data.get('db_connected', False)}")
-        
-        print("✓ PASS: Health endpoint")
-        return True
-    except Exception as e:
-        print(f"✗ FAIL: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200, f"Status: {response.status_code}"
+    data = response.json()
+    print(f"✓ Status: {response.status_code}")
+    print(f"✓ Response keys: {list(data.keys())}")
+    print(f"  Model loaded: {data.get('model_loaded', False)}")
+    print(f"  DB connected: {data.get('db_connected', False)}")
+
+    print("✓ PASS: Health endpoint")
 
 def test_model_info_endpoint():
     """Test /api/v1/model/info endpoint"""
     print("\n=== TEST 2: Model Info Endpoint ===")
-    try:
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        response = client.get("/api/v1/model/info")
-        
-        assert response.status_code == 200, f"Status: {response.status_code}"
-        data = response.json()
-        print(f"✓ Status: {response.status_code}")
-        print(f"✓ Model info: {list(data.keys())}")
-        
-        print("✓ PASS: Model info endpoint")
-        return True
-    except Exception as e:
-        print(f"✗ FAIL: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    response = client.get("/api/v1/model/info")
+
+    assert response.status_code == 200, f"Status: {response.status_code}"
+    data = response.json()
+    print(f"✓ Status: {response.status_code}")
+    print(f"✓ Model info: {list(data.keys())}")
+
+    print("✓ PASS: Model info endpoint")
 
 def test_analyze_endpoint():
     """Test /api/v1/analyze endpoint"""
     print("\n=== TEST 3: Analyze Endpoint ===")
-    try:
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        # Create test image
-        test_image = create_test_image_base64()
-        print(f"✓ Test image created ({len(test_image)} chars)")
-        
-        # Send request
-        response = client.post(
-            "/api/v1/analyze",
-            json={
-                "image": test_image,
-                "source": "upload"  # Fixed: must be "upload" or "camera"
-            }
-        )
-        
-        assert response.status_code == 200, f"Status: {response.status_code}\nResponse: {response.text[:500]}"
-        data = response.json()
-        
-        # Verify response structure
-        assert "result" in data, "Missing 'result'"
-        assert "confidence" in data, "Missing 'confidence'"
-        assert "analysis" in data, "Missing 'analysis'"
-        assert "ensemble_score" in data, "Missing 'ensemble_score'"
-        assert "processing_time_ms" in data, "Missing 'processing_time_ms'"
-        
-        print(f"✓ Status: {response.status_code}")
-        print(f"✓ Result: {data['result']}")
-        print(f"✓ Confidence: {data['confidence']:.4f}")
-        print(f"✓ Ensemble score: {data['ensemble_score']:.4f}")
-        print(f"✓ Processing time: {data['processing_time_ms']}ms")
-        
-        # Verify analysis has all features
-        analysis = data['analysis']
-        expected_features = [
-            'cnn_classification', 'watermark', 'security_thread',
-            'color_analysis', 'texture_analysis', 'serial_number',
-            'dimensions', 'intaglio_printing', 'latent_image',
-            'optically_variable_ink', 'microlettering',
-            'identification_mark', 'angular_lines', 'fluorescence',
-            'see_through_registration'
-        ]
-        
-        for feature in expected_features:
-            assert feature in analysis, f"Missing feature: {feature}"
-            print(f"  ✓ {feature}: {analysis[feature].get('status', 'N/A')}")
-        
-        print("✓ PASS: Analyze endpoint")
-        return True
-    except Exception as e:
-        print(f"✗ FAIL: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+
+    # Create test image
+    test_image = create_test_image_base64()
+    print(f"✓ Test image created ({len(test_image)} chars)")
+
+    # Send request
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "image": test_image,
+            "source": "upload"  # Fixed: must be "upload" or "camera"
+        }
+    )
+
+    assert response.status_code == 200, f"Status: {response.status_code}\nResponse: {response.text[:500]}"
+    data = response.json()
+
+    # Verify response structure
+    assert "result" in data, "Missing 'result'"
+    assert "confidence" in data, "Missing 'confidence'"
+    assert "analysis" in data, "Missing 'analysis'"
+    assert "ensemble_score" in data, "Missing 'ensemble_score'"
+    assert "processing_time_ms" in data, "Missing 'processing_time_ms'"
+
+    print(f"✓ Status: {response.status_code}")
+    print(f"✓ Result: {data['result']}")
+    print(f"✓ Confidence: {data['confidence']:.4f}")
+    print(f"✓ Ensemble score: {data['ensemble_score']:.4f}")
+    print(f"✓ Processing time: {data['processing_time_ms']}ms")
+
+    # Verify analysis has all features
+    analysis = data['analysis']
+    expected_features = [
+        'cnn_classification', 'watermark', 'security_thread',
+        'color_analysis', 'texture_analysis', 'serial_number',
+        'dimensions', 'intaglio_printing', 'latent_image',
+        'optically_variable_ink', 'microlettering',
+        'identification_mark', 'angular_lines', 'fluorescence',
+        'see_through_registration'
+    ]
+
+    for feature in expected_features:
+        assert feature in analysis, f"Missing feature: {feature}"
+        print(f"  ✓ {feature}: {analysis[feature].get('status', 'N/A')}")
+
+    print("✓ PASS: Analyze endpoint")
 
 def test_invalid_image():
     """Test analyze endpoint with invalid image"""
     print("\n=== TEST 4: Invalid Image Handling ===")
-    try:
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        # Send invalid base64
-        response = client.post(
-            "/api/v1/analyze",
-            json={
-                "image": "data:image/jpeg;base64,invalid_base64_data_here!!!",
-                "source": "upload"
-            }
-        )
-        
-        # Should return 400 or 422 or 500 (expected error for invalid data)
-        assert response.status_code in [400, 422, 500], f"Expected error, got {response.status_code}"
-        print(f"✓ Correctly rejected invalid image (status: {response.status_code})")
-        
-        print("✓ PASS: Invalid image handling")
-        return True
-    except Exception as e:
-        print(f"✗ FAIL: {e}")
-        return False
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+
+    # Send invalid base64
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "image": "data:image/jpeg;base64,invalid_base64_data_here!!!",
+            "source": "upload"
+        }
+    )
+
+    # Should return 400 or 422 or 500 (expected error for invalid data)
+    assert response.status_code in [400, 422, 500], f"Expected error, got {response.status_code}"
+    print(f"✓ Correctly rejected invalid image (status: {response.status_code})")
+
+    print("✓ PASS: Invalid image handling")
 
 def test_history_endpoint():
     """Test history endpoints (requires DB)"""
     print("\n=== TEST 5: History Endpoints ===")
-    try:
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        # Get history (should work even if empty)
-        response = client.get("/api/v1/analyze/history")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"✓ History endpoint works")
-            print(f"  Items: {data.get('total', 0)}")
-            print("✓ PASS: History endpoints")
-            return True
-        else:
-            print(f"⚠ History endpoint returned {response.status_code}")
-            print("  This is expected if DB is not configured")
-            return True  # Not a failure if DB isn't set up
-            
-    except Exception as e:
-        print(f"✗ FAIL: {e}")
-        return False
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+
+    # Get history (should work even if empty)
+    response = client.get("/api/v1/analyze/history")
+
+    if response.status_code == 200:
+        data = response.json()
+        print(f"✓ History endpoint works")
+        print(f"  Items: {data.get('total', 0)}")
+        print("✓ PASS: History endpoints")
+    else:
+        print(f"⚠ History endpoint returned {response.status_code}")
+        print("  This is expected if DB is not configured")
 
 if __name__ == "__main__":
     print("="*80)

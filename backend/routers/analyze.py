@@ -1,56 +1,82 @@
 """Currency analysis endpoint."""
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
+
+import logging
 import time
 from datetime import datetime, timezone
+from typing import Any, Dict
 
-from models.schemas import AnalyzeRequest, AnalysisResult
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models.schemas import AnalysisResult, AnalyzeRequest
 from services.cnn_classifier import classify_currency, is_model_loaded
-from services.opencv_analyzer import analyze_security_features
 from services.ensemble_engine import compute_ensemble_score
 from services.image_annotator import generate_annotated_image, generate_thumbnail
 from services.image_preprocessor import decode_base64_image, preprocess_image
-from orm_models.analysis import CurrencyAnalysis, ResultType, ImageSource
-from database import get_db
+from services.opencv_analyzer import analyze_security_features
+from orm_models.analysis import CurrencyAnalysis, ImageSource, ResultType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/analyze", tags=["analyze"])
 
 
 @router.post("", response_model=AnalysisResult)
-async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze_currency(
+    request: AnalyzeRequest,
+    db: Session = Depends(get_db),
+) -> AnalysisResult:
+    """Analyse a currency image and return a full security-feature report.
+
+    Steps:
+    1. Decode the base64-encoded image.
+    2. Pre-process for CNN and OpenCV pipelines.
+    3. Run CNN classification.
+    4. Run OpenCV security-feature analysis.
+    5. Compute the ensemble decision.
+    6. Generate annotated image and thumbnail.
+    7. Persist the analysis in the database.
+    8. Return the structured response.
+    """
     start_time = time.time()
-    
+
     try:
         # Step 1: Decode base64 image
         image, mime_type = decode_base64_image(request.image)
-        
+
         # Step 2: Preprocess
         cnn_input, denoised, enhanced = preprocess_image(image)
-        
+
         # Step 3: CNN Classification
         cnn_start = time.time()
         cnn_result, denom_result, denom_confidence, cnn_confidence = classify_currency(cnn_input)
         cnn_time_ms = int((time.time() - cnn_start) * 1000)
-        
+
         # Step 4: OpenCV Security Feature Analysis
-        features = analyze_security_features(image, denoised, enhanced, denom_result)
+        features: Dict[str, Any] = analyze_security_features(image, denoised, enhanced, denom_result)
 
         # Step 5: Ensemble Decision
-        ensemble_score, final_result, overall_confidence, feature_agreement, critical_failures = compute_ensemble_score(
-            cnn_result, cnn_confidence, features
-        )
-        
+        (
+            ensemble_score,
+            final_result,
+            overall_confidence,
+            feature_agreement,
+            critical_failures,
+        ) = compute_ensemble_score(cnn_result, cnn_confidence, features)
+
         # Step 6: Generate Annotated Image & Thumbnail
-        annotated_base64 = generate_annotated_image(image, {
+        annotation_context: Dict[str, Any] = {
             "overall_result": final_result,
             "ensemble_score": ensemble_score,
-            **features
-        })
+            **features,
+        }
+        annotated_base64 = generate_annotated_image(image, annotation_context)
         thumbnail_base64 = generate_thumbnail(image, max_size=200)
-        
+
         # Step 7: Store in Database
         processing_time_ms = int((time.time() - start_time) * 1000)
-        
+
         analysis = CurrencyAnalysis(
             original_image_base64=request.image,
             annotated_image_base64=annotated_base64,
@@ -93,8 +119,8 @@ async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db
         db.add(analysis)
         db.commit()
         db.refresh(analysis)
-        analysis_id = analysis.id
-        
+        analysis_id: int = analysis.id
+
         # Step 8: Build Response
         return AnalysisResult(
             id=analysis_id,
@@ -131,10 +157,14 @@ async def analyze_currency(request: AnalyzeRequest, db: Session = Depends(get_db
             processing_time_ms=processing_time_ms,
             timestamp=datetime.now(timezone.utc),
         )
-    
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+    except ValueError as exc:
+        logger.warning("Invalid request: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error during currency analysis")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {exc}"
+        ) from exc

@@ -8,14 +8,14 @@ A production-ready full-stack application that uses PyTorch-based MobileNetV3-La
 [![PyTorch 2.7+cu118](https://img.shields.io/badge/PyTorch-2.7.1+cu118-orange.svg)](https://pytorch.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://reactjs.org)
-[![CUDA 11.8](https://img.shields.io/badge/CUDA-11.8-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![CPU/GPU](https://img.shields.io/badge/Hardware-CPU%2FGPU-yellow.svg)](https://pytorch.org)
 
 ---
 
 ## 🎯 Features
 
 ### AI-Powered Detection
-- **PyTorch MobileNetV3-Large CNN**: Pretrained on ImageNet, fine-tuned on 7,443 currency images with CUDA acceleration on GTX 1050
+- **PyTorch MobileNetV3-Large CNN**: Pretrained on ImageNet, fine-tuned on 7,443 currency images with **CPU/GPU support** (no GPU required)
 - **15 Security Features**: Comprehensive analysis matching RBI specifications with independent scoring
 - **Class-Balanced Training**: Handles 2:1 imbalance with weighted BCELoss (1.48x for fake notes)
 - **96%+ Validation Accuracy**: Achieved during training on 1,116 validation images
@@ -50,6 +50,7 @@ A production-ready full-stack application that uses PyTorch-based MobileNetV3-La
 | **Denominations** | ₹10, ₹20, ₹50, ₹100, ₹200, ₹500, ₹2000 |
 | **Model Size** | 13.2 MB (MobileNetV3-Large) |
 | **Processing Time (GPU)** | 0.5-1.5 seconds |
+| **Processing Time (CPU)** | 3-6 seconds |
 | **Class Balance** | 2:1 (real:fake) with weighted loss |
 
 ---
@@ -61,7 +62,7 @@ A production-ready full-stack application that uses PyTorch-based MobileNetV3-La
 - Node.js 18+
 - MySQL 8.0+ (or SQLite for testing)
 - Tesseract OCR ([Windows installer](https://github.com/UB-Mannheim/tesseract/wiki))
-- NVIDIA GPU with CUDA 11.8+ (GTX 1050 or better recommended)
+- **GPU Optional**: NVIDIA GPU with CUDA 11.8+ recommended but **NOT required** - system works fully on CPU
 
 ### Backend Setup
 
@@ -433,9 +434,9 @@ This system is a decision support tool, not a definitive authentication device. 
 
 ---
 
-**Version**: 4.0 (MobileNetV3-Large PyTorch CUDA Edition)
-**Last Updated**: April 2026
-**Framework**: PyTorch 2.7.1+cu118 + FastAPI + React
-**GPU**: NVIDIA GTX 1050 (3GB, CUDA 11.8)
-**Model**: MobileNetV3-Large (3.25M params, 13.2 MB checkpoint)
+**Version**: 5.0 (MobileNetV3-Large PyTorch CPU/GPU Edition)  
+**Last Updated**: April 14, 2026  
+**Framework**: PyTorch 2.7.1+cu118 + FastAPI + React  
+**Hardware**: CPU-only or NVIDIA GPU with CUDA 11.8+ (both fully supported)  
+**Model**: MobileNetV3-Large (3.25M params, 13.2 MB checkpoint)  
 **Dataset**: 7,443 images (2,506 fake, 4,937 real) across 7 denominations
